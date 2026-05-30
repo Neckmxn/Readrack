@@ -1,61 +1,97 @@
-import React from 'react';
-import { Download, DollarSign, BookOpen } from 'lucide-react';
+import React from 'react'
+import { Download, ShoppingCart, BookOpen, Star, Eye } from 'lucide-react'
+import { format } from 'date-fns'
 
-const BookCard = ({ book, onDownload, onPurchase, showPrice = true }) => {
+export default function BookCard({ book, onBuy, onRead, showBuyButton = true }) {
+  const isFree = book.isFree || book.price === 0
+
   return (
-    <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded-lg shadow-lg overflow-hidden card-hover">
-      <div className="h-48 bg-gradient-to-br from-blue-700 to-blue-600 flex items-center justify-center">
-        <BookOpen className="h-20 w-20 text-blue-200" />
-      </div>
-      
-      <div className="p-4">
-        <h3 className="text-xl font-bold text-white mb-2 truncate">{book.title}</h3>
-        <p className="text-blue-200 text-sm mb-2">{book.author || 'Unknown Author'}</p>
-        <p className="text-blue-300 text-sm mb-3">
-          <span className="bg-blue-700 px-2 py-1 rounded-full">{book.category}</span>
-        </p>
-        
-        {book.description && (
-          <p className="text-blue-100 text-sm mb-4 line-clamp-2">{book.description}</p>
-        )}
-        
-        <div className="flex items-center justify-between">
-          {showPrice && (
-            <div className="text-lg font-bold text-white">
-              {book.isFree ? (
-                <span className="text-green-400">Free</span>
-              ) : (
-                <span className="flex items-center">
-                  <DollarSign className="h-5 w-5" />
-                  {book.price}
-                </span>
-              )}
-            </div>
-          )}
-          
-          <div className="flex space-x-2">
-            {book.isFree ? (
-              <button
-                onClick={() => onDownload(book)}
-                className="flex items-center space-x-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 transition btn-primary"
-              >
-                <Download className="h-4 w-4" />
-                <span>Download</span>
-              </button>
-            ) : (
-              <button
-                onClick={() => onPurchase(book)}
-                className="flex items-center space-x-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition btn-primary"
-              >
-                <DollarSign className="h-4 w-4" />
-                <span>Buy Now</span>
-              </button>
-            )}
+    <div className="glass-card book-card p-4 flex flex-col gap-3 relative overflow-hidden">
+      {/* Cover */}
+      <div className="relative h-48 rounded-xl overflow-hidden bg-gradient-to-br from-blue-900/60 to-navy-950 flex items-center justify-center">
+        {book.coverUrl ? (
+          <img src={book.coverUrl} alt={book.title} className="w-full h-full object-cover" />
+        ) : (
+          <div className="flex flex-col items-center gap-2 text-blue-400/50">
+            <BookOpen size={40} />
+            <span className="text-xs">{book.category}</span>
           </div>
+        )}
+        {/* Badges */}
+        <div className="absolute top-2 left-2 flex flex-col gap-1">
+          {book.isNew && <span className="badge badge-new">New</span>}
+          {isFree       && <span className="badge badge-free">Free</span>}
+          {!isFree      && <span className="badge badge-paid">${book.price?.toFixed(2)}</span>}
+          {book.isKidsContent && <span className="badge badge-kids">Kids</span>}
         </div>
       </div>
-    </div>
-  );
-};
 
-export default BookCard;
+      {/* Info */}
+      <div>
+        <h3 className="font-semibold text-white text-sm leading-tight line-clamp-2">{book.title}</h3>
+        <p className="text-xs text-slate-400 mt-0.5">{book.author}</p>
+        <span className="inline-block mt-1 text-xs text-blue-400 bg-blue-900/30 px-2 py-0.5 rounded-full">
+          {book.category}
+        </span>
+      </div>
+
+      {/* Description */}
+      {book.description && (
+        <p className="text-xs text-slate-500 line-clamp-2">{book.description}</p>
+      )}
+
+      {/* Actions */}
+      <div className="flex gap-2 mt-auto pt-1">
+        {isFree ? (
+          <>
+            <a
+              href={book.pdfUrl}
+              download={`${book.title}.pdf`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-primary flex-1 text-xs flex items-center justify-center gap-1 py-2"
+            >
+              <Download size={13} /> Download
+            </a>
+            {onRead && (
+              <button
+                onClick={() => onRead(book)}
+                className="btn-secondary text-xs flex items-center justify-center gap-1 px-3 py-2"
+              >
+                <Eye size={13} /> Read
+              </button>
+            )}
+          </>
+        ) : (
+          <>
+            {showBuyButton && onBuy && (
+              <button
+                onClick={() => onBuy(book)}
+                className="btn-primary flex-1 text-xs flex items-center justify-center gap-1 py-2"
+              >
+                <ShoppingCart size={13} /> Buy ${book.price?.toFixed(2)}
+              </button>
+            )}
+            {book.purchased && (
+              <a
+                href={book.pdfUrl}
+                download={`${book.title}.pdf`}
+                target="_blank"
+                rel="noreferrer"
+                className="btn-secondary text-xs flex items-center justify-center gap-1 px-3 py-2"
+              >
+                <Download size={13} />
+              </a>
+            )}
+          </>
+        )}
+      </div>
+
+      {book.addedAt && (
+        <p className="text-xs text-slate-600 mt-1">
+          Added {format(book.addedAt?.toDate ? book.addedAt.toDate() : new Date(book.addedAt), 'MMM d, yyyy')}
+        </p>
+      )}
+    </div>
+  )
+}

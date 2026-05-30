@@ -1,231 +1,264 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Send, Trash2, History } from 'lucide-react';
-import { openrouterService } from '../services/openrouterService';
-import { useAuth } from '../contexts/AuthContext';
-import { collection, addDoc, query, where, orderBy, getDocs, deleteDoc, doc } from 'firebase/firestore';
-import { db } from '../config/firebase';
+import React, { useState, useEffect, useRef } from 'react'
+import { useAuth } from '../contexts/AuthContext'
+import { db } from '../firebase/config'
+import {
+  collection, addDoc, getDocs, doc, updateDoc,
+  query, orderBy, serverTimestamp, deleteDoc
+} from 'firebase/firestore'
+import { streamChatWithAI } from '../utils/openrouter'
+import {
+  MessageSquare, Send, Plus, Trash2, Bot, User,
+  Clock, Loader, Sparkles, BookOpen
+} from 'lucide-react'
+import toast from 'react-hot-toast'
+import { format } from 'date-fns'
 
-const AIChat = () => {
-  const [messages, setMessages] = useState([]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [chatHistory, setChatHistory] = useState([]);
-  const [showHistory, setShowHistory] = useState(false);
-  const messagesEndRef = useRef(null);
-  const { currentUser } = useAuth();
+const SYSTEM_PROMPT = `You are Readrack AI, an expert literary assistant. You help users with:
+- Book recommendations and summaries
+- Author backgrounds and literary analysis
+- Plot discussions and character analysis
+- Genre exploration and reading lists
+- Writing tips and book club discussions
+Be warm, insightful, and enthusiastic about books!`
 
-  useEffect(() => {
-    loadChatHistory();
-  }, [currentUser]);
+export default function AIChat() {
+  const { currentUser, isKidsMode } = useAuth()
+  const [sessions, setSessions]   = useState([])
+  const [activeId, setActiveId]   = useState(null)
+  const [messages, setMessages]   = useState([])
+  const [input, setInput]         = useState('')
+  const [loading, setLoading]     = useState(false)
+  const [streaming, setStreaming] = useState(false)
+  const [streamText, setStreamText] = useState('')
+  const messagesEnd = useRef(null)
+  const inputRef    = useRef(null)
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages]);
+  useEffect(() => { loadSessions() }, [])
+  useEffect(() => { messagesEnd.current?.scrollIntoView({ behavior: 'smooth' }) }, [messages, streamText])
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  async function loadSessions() {
+    const q    = query(collection(db, 'users', currentUser.uid, 'chatSessions'), orderBy('updatedAt', 'desc'))
+    const snap = await getDocs(q)
+    const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+    setSessions(data)
+    if (data.length > 0 && !activeId) openSession(data[0])
+  }
 
-  const loadChatHistory = async () => {
-    if (!currentUser) return;
+  async function openSession(session) {
+    setActiveId(session.id)
+    setMessages(session.messages || [])
+  }
 
-    try {
-      const q = query(
-        collection(db, 'chatHistory'),
-        where('userId', '==', currentUser.uid),
-        orderBy('timestamp', 'desc')
-      );
-      const snapshot = await getDocs(q);
-      const history = snapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      }));
-      setChatHistory(history);
-    } catch (error) {
-      console.error('Error loading chat history:', error);
-    }
-  };
+  async function newSession() {
+    const ref = await addDoc(collection(db, 'users', currentUser.uid, 'chatSessions'), {
+      title:    'New Conversation',
+      messages: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    })
+    const sess = { id: ref.id, title: 'New Conversation', messages: [] }
+    setSessions(s => [sess, ...s])
+    setActiveId(ref.id)
+    setMessages([])
+  }
 
-  const saveChatMessage = async (role, content) => {
-    if (!currentUser) return;
+  async function deleteSession(id, e) {
+    e.stopPropagation()
+    await deleteDoc(doc(db, 'users', currentUser.uid, 'chatSessions', id))
+    setSessions(s => s.filter(x => x.id !== id))
+    if (activeId === id) { setActiveId(null); setMessages([]) }
+    toast.success('Conversation deleted')
+  }
 
-    try {
-      await addDoc(collection(db, 'chatHistory'), {
-        userId: currentUser.uid,
-        role,
-        content,
-        timestamp: new Date(),
-      });
-      await loadChatHistory();
-    } catch (error) {
-      console.error('Error saving chat message:', error);
-    }
-  };
+  async function sendMessage(e) {
+    e?.preventDefault()
+    if (!input.trim() || loading) return
+    if (!activeId) { await newSession(); return }
 
-  const clearHistory = async () => {
-    if (!currentUser) return;
-
-    try {
-      const q = query(
-        collection(db, 'chatHistory'),
-        where('userId', '==', currentUser.uid)
-      );
-      const snapshot = await getDocs(q);
-      const deletePromises = snapshot.docs.map((document) =>
-        deleteDoc(doc(db, 'chatHistory', document.id))
-      );
-      await Promise.all(deletePromises);
-      setChatHistory([]);
-      setMessages([]);
-    } catch (error) {
-      console.error('Error clearing history:', error);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
-
-    const userMessage = { role: 'user', content: input };
-    setMessages((prev) => [...prev, userMessage]);
-    await saveChatMessage('user', input);
-
-    setInput('');
-    setLoading(true);
+    const userMsg = { role: 'user', content: input.trim(), ts: Date.now() }
+    const newMessages = [...messages, userMsg]
+    setMessages(newMessages)
+    setInput('')
+    setLoading(true)
+    setStreaming(true)
+    setStreamText('')
 
     try {
-      const response = await openrouterService.answerBookQuestion(input);
-      const aiMessage = { role: 'assistant', content: response };
-      setMessages((prev) => [...prev, aiMessage]);
-      await saveChatMessage('assistant', response);
-    } catch (error) {
-      console.error('Error getting AI response:', error);
-      const errorMessage = {
-        role: 'assistant',
-        content: 'Sorry, I encountered an error. Please try again.',
-      };
-      setMessages((prev) => [...prev, errorMessage]);
-    }
+      const apiMessages = [
+        { role: 'system', content: isKidsMode ? SYSTEM_PROMPT + '\nKeep responses child-friendly and age-appropriate.' : SYSTEM_PROMPT },
+        ...newMessages.map(m => ({ role: m.role, content: m.content }))
+      ]
 
-    setLoading(false);
-  };
+      let fullReply = ''
+      await streamChatWithAI(apiMessages, (delta, full) => {
+        fullReply = full
+        setStreamText(full)
+      })
+
+      const aiMsg = { role: 'assistant', content: fullReply, ts: Date.now() }
+      const finalMessages = [...newMessages, aiMsg]
+      setMessages(finalMessages)
+      setStreamText('')
+
+      // Auto-title from first message
+      const title = newMessages[0]?.content?.slice(0, 40) + (newMessages[0]?.content?.length > 40 ? '...' : '')
+      await updateDoc(doc(db, 'users', currentUser.uid, 'chatSessions', activeId), {
+        messages:  finalMessages,
+        title,
+        updatedAt: serverTimestamp()
+      })
+      setSessions(s => s.map(x => x.id === activeId ? { ...x, messages: finalMessages, title } : x))
+    } catch (err) {
+      toast.error('AI error: ' + err.message)
+    } finally {
+      setLoading(false)
+      setStreaming(false)
+      inputRef.current?.focus()
+    }
+  }
 
   return (
-    <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl mx-auto">
-        <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded-lg shadow-2xl overflow-hidden">
-          {/* Header */}
-          <div className="bg-blue-800 px-6 py-4 border-b border-blue-700">
-            <div className="flex items-center justify-between">
-              <h1 className="text-2xl font-bold text-white">AI Chat Assistant</h1>
-              <div className="flex space-x-2">
-                <button
-                  onClick={() => setShowHistory(!showHistory)}
-                  className="flex items-center space-x-2 px-4 py-2 bg-blue-700 text-white rounded-md hover:bg-blue-600 transition btn-primary"
-                >
-                  <History className="h-4 w-4" />
-                  <span>History</span>
-                </button>
-                <button
-                  onClick={clearHistory}
-                  className="flex items-center space-x-2 px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 transition btn-primary"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  <span>Clear</span>
-                </button>
+    <div className="h-[calc(100vh-80px)] flex gap-4 animate-fade-in">
+      {/* Sidebar - History */}
+      <div className="w-64 flex-shrink-0 glass-card flex flex-col overflow-hidden">
+        <div className="p-3 border-b border-blue-900/30">
+          <button onClick={newSession} className="btn-primary w-full text-sm flex items-center justify-center gap-2 py-2">
+            <Plus size={15} /> New Chat
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2 space-y-1">
+          {sessions.length === 0 && (
+            <p className="text-xs text-slate-600 text-center mt-8">No conversations yet.<br />Start chatting!</p>
+          )}
+          {sessions.map(s => (
+            <div
+              key={s.id}
+              onClick={() => openSession(s)}
+              className={`
+                flex items-center gap-2 p-2.5 rounded-lg cursor-pointer group transition-all
+                ${activeId === s.id ? 'bg-blue-900/40 border border-blue-700/40' : 'hover:bg-blue-900/20'}
+              `}
+            >
+              <MessageSquare size={13} className={activeId === s.id ? 'text-blue-400' : 'text-slate-500'} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs truncate ${activeId === s.id ? 'text-slate-200' : 'text-slate-400'}`}>{s.title || 'New Conversation'}</p>
+                {s.updatedAt?.toDate && (
+                  <p className="text-xs text-slate-600">{format(s.updatedAt.toDate(), 'MMM d')}</p>
+                )}
               </div>
+              <button
+                onClick={e => deleteSession(s.id, e)}
+                className="opacity-0 group-hover:opacity-100 text-red-500/60 hover:text-red-400 transition-all"
+              >
+                <Trash2 size={12} />
+              </button>
             </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Chat Area */}
+      <div className="flex-1 glass-card flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-3.5 border-b border-blue-900/30 flex items-center gap-3">
+          <div className="w-8 h-8 rounded-xl bg-blue-600/30 flex items-center justify-center">
+            <Bot size={16} className="text-blue-400" />
           </div>
+          <div>
+            <h2 className="font-semibold text-white text-sm">Readrack AI</h2>
+            <p className="text-xs text-slate-500">Your literary companion</p>
+          </div>
+          <div className="ml-auto">
+            <span className="w-2 h-2 bg-green-400 rounded-full inline-block animate-pulse" />
+          </div>
+        </div>
 
-          {/* Chat Messages */}
-          <div className="h-96 overflow-y-auto p-6 space-y-4 scrollbar-hide bg-blue-900">
-            {messages.length === 0 && !showHistory && (
-              <div className="text-center text-blue-300 mt-20">
-                <p className="text-xl mb-4">Ask me anything about books!</p>
-                <p className="text-sm">
-                  I can help you find book recommendations, answer questions about literature, and more.
-                </p>
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {messages.length === 0 && !streaming && (
+            <div className="flex flex-col items-center justify-center h-full gap-4 text-center">
+              <div className="w-16 h-16 rounded-2xl bg-blue-900/30 flex items-center justify-center">
+                <Sparkles size={32} className="text-blue-400" />
               </div>
-            )}
-
-            {showHistory ? (
-              <div className="space-y-2">
-                <h2 className="text-xl font-bold text-white mb-4">Chat History</h2>
-                {chatHistory.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`p-3 rounded-lg ${
-                      msg.role === 'user'
-                        ? 'bg-blue-700 ml-auto max-w-xs'
-                        : 'bg-blue-800 mr-auto max-w-xs'
-                    }`}
-                  >
-                    <p className="text-sm text-blue-200">{msg.role === 'user' ? 'You' : 'AI'}</p>
-                    <p className="text-white">{msg.content}</p>
-                    <p className="text-xs text-blue-300 mt-1">
-                      {new Date(msg.timestamp?.toDate()).toLocaleString()}
-                    </p>
-                  </div>
+              <div>
+                <h3 className="font-semibold text-slate-300">Ask me anything about books!</h3>
+                <p className="text-xs text-slate-500 mt-1">Book recommendations, summaries, analysis...</p>
+              </div>
+              <div className="flex flex-wrap gap-2 justify-center mt-2">
+                {[
+                  "Recommend a fantasy novel",
+                  "Summarize 1984 by Orwell",
+                  "Best books of 2024",
+                  "Explain magical realism"
+                ].map(s => (
+                  <button key={s} onClick={() => { setInput(s); inputRef.current?.focus() }}
+                    className="text-xs text-blue-400 border border-blue-900/50 rounded-full px-3 py-1 hover:bg-blue-900/30 transition-colors">
+                    {s}
+                  </button>
                 ))}
               </div>
-            ) : (
-              messages.map((message, index) => (
-                <div
-                  key={index}
-                  className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-xs lg:max-w-md px-4 py-3 rounded-lg ${
-                      message.role === 'user'
-                        ? 'bg-blue-600 text-white'
-                        : 'bg-blue-800 text-blue-100'
-                    }`}
-                  >
-                    <p className="text-sm font-medium mb-1">
-                      {message.role === 'user' ? 'You' : 'AI Assistant'}
-                    </p>
-                    <p className="whitespace-pre-wrap">{message.content}</p>
-                  </div>
-                </div>
-              ))
-            )}
+            </div>
+          )}
 
-            {loading && (
-              <div className="flex justify-start">
-                <div className="bg-blue-800 text-blue-100 px-4 py-3 rounded-lg">
-                  <p className="animate-pulse">AI is thinking...</p>
+          {messages.map((msg, i) => (
+            <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+              <div className={`flex items-start gap-2 max-w-[80%] ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                <div className={`w-7 h-7 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${msg.role === 'user' ? 'bg-blue-600' : 'bg-slate-700'}`}>
+                  {msg.role === 'user' ? <User size={13} className="text-white" /> : <Bot size={13} className="text-blue-300" />}
+                </div>
+                <div className={msg.role === 'user' ? 'chat-bubble-user' : 'chat-bubble-ai'}>
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{msg.content}</p>
                 </div>
               </div>
-            )}
+            </div>
+          ))}
 
-            <div ref={messagesEndRef} />
-          </div>
+          {streaming && streamText && (
+            <div className="flex justify-start">
+              <div className="flex items-start gap-2 max-w-[80%]">
+                <div className="w-7 h-7 rounded-full bg-slate-700 flex items-center justify-center mt-0.5 flex-shrink-0">
+                  <Bot size={13} className="text-blue-300" />
+                </div>
+                <div className="chat-bubble-ai">
+                  <p className="text-sm leading-relaxed whitespace-pre-wrap">{streamText}<span className="inline-block w-1 h-4 bg-blue-400 ml-0.5 animate-pulse" /></p>
+                </div>
+              </div>
+            </div>
+          )}
 
-          {/* Input Form */}
-          <div className="bg-blue-800 px-6 py-4 border-t border-blue-700">
-            <form onSubmit={handleSubmit} className="flex space-x-2">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Type your question about books..."
-                className="flex-1 px-4 py-2 bg-blue-900 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                disabled={loading}
-              />
-              <button
-                type="submit"
-                disabled={loading || !input.trim()}
-                className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-2"
-              >
-                <Send className="h-4 w-4" />
-                <span>Send</span>
-              </button>
-            </form>
-          </div>
+          {loading && !streaming && (
+            <div className="flex justify-start">
+              <div className="chat-bubble-ai flex items-center gap-2">
+                <Loader size={13} className="animate-spin text-blue-400" />
+                <span className="text-sm text-slate-400">Thinking...</span>
+              </div>
+            </div>
+          )}
+          <div ref={messagesEnd} />
+        </div>
+
+        {/* Input */}
+        <div className="p-4 border-t border-blue-900/30">
+          <form onSubmit={sendMessage} className="flex gap-2">
+            <input
+              ref={inputRef}
+              className="input-field flex-1"
+              placeholder="Ask about any book, author, or literary topic..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !e.shiftKey && sendMessage(e)}
+              disabled={loading}
+            />
+            <button
+              type="submit"
+              disabled={loading || !input.trim()}
+              className="btn-primary px-4 flex items-center gap-1 disabled:opacity-50"
+            >
+              <Send size={16} />
+            </button>
+          </form>
         </div>
       </div>
     </div>
-  );
-};
-
-export default AIChat;
+  )
+}

@@ -1,0 +1,44 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Admin email check
+    function isAdmin() {
+      return request.auth != null && request.auth.token.email == 'aarag1604@gmail.com';
+    }
+    
+    // Auth check
+    function isSignedIn() {
+      return request.auth != null;
+    }
+    
+    // Books — everyone can read, only admin can write
+    match /books/{bookId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+    
+    // Users — can read/write own profile
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if isAdmin();
+    }
+    
+    // Chat sessions — user owns their own
+    match /users/{userId}/chatSessions/{sessionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    // Purchases — user reads own, admin reads all
+    match /purchases/{purchaseId} {
+      allow read: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow write: if false; // Only backend writes
+    }
+    
+    // Contact messages — anyone can create, only admin can read
+    match /contactMessages/{msgId} {
+      allow create: if isSignedIn();
+      allow read, update, delete: if isAdmin();
+    }
+  }
+}

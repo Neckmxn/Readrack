@@ -1,127 +1,72 @@
-import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
-import { AuthProvider, useAuth } from './contexts/AuthContext';
-import Navbar from './components/Navbar';
+import React from 'react'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { Toaster } from 'react-hot-toast'
+import { AuthProvider, useAuth } from './contexts/AuthContext'
+import Layout from './components/Layout'
 
 // Pages
-import Dashboard from './pages/Dashboard';
-import Login from './pages/Login';
-import Signup from './pages/Signup';
-import AIChat from './pages/AIChat';
-import AllBooks from './pages/AllBooks';
-import NewReleases from './pages/NewReleases';
-import FreeBooks from './pages/FreeBooks';
-import BookStore from './pages/BookStore';
-import BookTools from './pages/BookTools';
-import AskItOut from './pages/AskItOut';
-import AboutUs from './pages/AboutUs';
-import ContactUs from './pages/ContactUs';
-import AdminPanel from './pages/AdminPanel';
+import Login         from './pages/Login'
+import Dashboard     from './pages/Dashboard'
+import AIChat        from './pages/AIChat'
+import AllBooks      from './pages/AllBooks'
+import NewReleases   from './pages/NewReleases'
+import FreeBooks     from './pages/FreeBooks'
+import BookStore     from './pages/BookStore'
+import BookAnalyzer  from './pages/BookAnalyzer'
+import AskItOut      from './pages/AskItOut'
+import AboutUs       from './pages/AboutUs'
+import ContactUs     from './pages/ContactUs'
 
-const PrivateRoute = ({ children }) => {
-  const { currentUser } = useAuth();
-  return currentUser ? children : <Navigate to="/login" />;
-};
+function ProtectedRoute({ children }) {
+  const { currentUser } = useAuth()
+  return currentUser ? children : <Navigate to="/login" replace />
+}
 
-const AdminRoute = ({ children }) => {
-  const { currentUser, isAdmin } = useAuth();
-  return currentUser && isAdmin ? children : <Navigate to="/" />;
-};
-
-function AppContent() {
+function AppRoutes() {
   return (
-    <div className="min-h-screen gradient-bg">
-      <Navbar />
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
-        <Route
-          path="/"
-          element={
-            <PrivateRoute>
-              <Dashboard />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/ai-chat"
-          element={
-            <PrivateRoute>
-              <AIChat />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/all-books"
-          element={
-            <PrivateRoute>
-              <AllBooks />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/new-releases"
-          element={
-            <PrivateRoute>
-              <NewReleases />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/free-books"
-          element={
-            <PrivateRoute>
-              <FreeBooks />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/book-store"
-          element={
-            <PrivateRoute>
-              <BookStore />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/book-tools"
-          element={
-            <PrivateRoute>
-              <BookTools />
-            </PrivateRoute>
-          }
-        />
-        <Route
-          path="/ask-it-out"
-          element={
-            <PrivateRoute>
-              <AskItOut />
-            </PrivateRoute>
-          }
-        />
-        <Route path="/about" element={<AboutUs />} />
-        <Route path="/contact" element={<ContactUs />} />
-        <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminPanel />
-            </AdminRoute>
-          }
-        />
-      </Routes>
+    <Routes>
+      <Route
+  path="/login"
+  element={
+    <div style={{ color: 'white', padding: '50px', fontSize: '30px' }}>
+      LOGIN PAGE TEST
     </div>
-  );
+  }
+/>
+      <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+        <Route index              element={<Dashboard />} />
+        <Route path="chat"        element={<AIChat />} />
+        <Route path="books"       element={<AllBooks />} />
+        <Route path="new-releases" element={<NewReleases />} />
+        <Route path="free-books"  element={<FreeBooks />} />
+        <Route path="store"       element={<BookStore />} />
+        <Route path="analyzer"    element={<BookAnalyzer />} />
+        <Route path="ask-it-out"  element={<AskItOut />} />
+        <Route path="about"       element={<AboutUs />} />
+        <Route path="contact"     element={<ContactUs />} />
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  )
 }
 
-function App() {
+export default function App() {
   return (
-    <Router>
+    <BrowserRouter>
       <AuthProvider>
-        <AppContent />
+        <AppRoutes />
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            style: {
+              background: 'rgba(13,27,64,0.95)',
+              color: '#f1f5f9',
+              border: '1px solid rgba(59,130,246,0.3)',
+              backdropFilter: 'blur(12px)'
+            }
+          }}
+        />
       </AuthProvider>
-    </Router>
-  );
+    </BrowserRouter>
+  )
 }
-
-export default App;

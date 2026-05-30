@@ -1,158 +1,155 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect } from 'react'
 import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  signOut,
-  onAuthStateChanged,
-  PhoneAuthProvider,
-  signInWithPhoneNumber,
-  RecaptchaVerifier,
-} from 'firebase/auth';
-import { doc, setDoc, getDoc } from 'firebase/firestore';
-import { auth, googleProvider, facebookProvider, db } from '../config/firebase';
+  signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+  signOut, onAuthStateChanged, updateProfile, PhoneAuthProvider,
+  signInWithPhoneNumber, RecaptchaVerifier
+} from 'firebase/auth'
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore'
+import { auth, db, googleProvider, facebookProvider } from '../firebase/config'
+import { differenceInYears, parseISO } from 'date-fns'
 
-const AuthContext = createContext({});
+const ADMIN_EMAIL = 'aarag1604@gmail.com'
 
-export const useAuth = () => useContext(AuthContext);
+const AuthContext = createContext(null)
+export const useAuth = () => useContext(AuthContext)
 
-export const AuthProvider = ({ children }) => {
-  const [currentUser, setCurrentUser] = useState(null);
-  const [userProfile, setUserProfile] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [isKidsMode, setIsKidsMode] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
+export function AuthProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(null)
+  const [userProfile, setUserProfile]  = useState(null)
+  const [loading, setLoading]          = useState(true)
+  const [isKidsMode, setIsKidsMode]    = useState(false)
 
-  const ADMIN_EMAIL = import.meta.env.VITE_ADMIN_EMAIL;
+  const isAdmin = currentUser?.email === ADMIN_EMAIL
 
-  const calculateAge = (birthDate) => {
-    const today = new Date();
-    const birth = new Date(birthDate);
-    let age = today.getFullYear() - birth.getFullYear();
-    const monthDiff = today.getMonth() - birth.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
-    }
-    return age;
-  };
+  // ── Helpers ──────────────────────────────────────────
+async function loadProfile(uid) {
+  try {
+    const snap = await getDoc(doc(db, 'users', uid))
 
-  const createUserProfile = async (user, additionalData = {}) => {
-    if (!user) return;
+    if (snap.exists()) {
+      const data = snap.data()
+      setUserProfile(data)
 
-    const userRef = doc(db, 'users', user.uid);
-    const snapshot = await getDoc(userRef);
-
-    if (!snapshot.exists()) {
-      const { email, displayName, phoneNumber } = user;
-      const createdAt = new Date();
-      const age = additionalData.birthDate ? calculateAge(additionalData.birthDate) : null;
-
-      try {
-        await setDoc(userRef, {
-          email,
-          displayName,
-          phoneNumber,
-          createdAt,
-          birthDate: additionalData.birthDate || null,
-          age,
-          isKidsMode: age !== null && age < 18,
-          ...additionalData,
-        });
-      } catch (error) {
-        console.error('Error creating user profile:', error);
+      if (data.dob) {
+        const age = differenceInYears(new Date(), parseISO(data.dob))
+        setIsKidsMode(age < 18)
       }
+
+      return data
     }
 
-    return userRef;
-  };
-
-  const loadUserProfile = async (user) => {
-    if (!user) {
-      setUserProfile(null);
-      setIsKidsMode(false);
-      setIsAdmin(false);
-      return;
+    return null
+  } catch (error) {
+    console.error('loadProfile error:', error)
+    return null
+  }
+}
+  async function createUserProfile(user, extra = {}) {
+    const ref = doc(db, 'users', user.uid)
+    const snap = await getDoc(ref)
+    if (!snap.exists()) {
+      await setDoc(ref, {
+        uid: user.uid,
+        email: user.email,
+        displayName: user.displayName || '',
+        photoURL: user.photoURL || '',
+        dob: extra.dob || '',
+        createdAt: serverTimestamp(),
+        ...extra
+      })
     }
+    return loadProfile(user.uid)
+  }
 
+  // ── Auth Methods ──────────────────────────────────────
+  async function loginWithGoogle() {
+    const result = await signInWithPopup(auth, googleProvider)
+    await createUserProfile(result.user)
+    return result
+  }
+
+  async function loginWithFacebook() {
+    const result = await signInWithPopup(auth, facebookProvider)
+    await createUserProfile(result.user)
+    return result
+  }
+
+  async function loginWithEmail(email, password) {
+    const result = await signInWithEmailAndPassword(auth, email, password)
+    await loadProfile(result.user.uid)
+    return result
+  }
+
+  async function registerWithEmail(email, password, displayName, dob) {
+    const result = await createUserWithEmailAndPassword(auth, email, password)
+    await updateProfile(result.user, { displayName })
+    await createUserProfile(result.user, { dob })
+    return result
+  }
+
+  function setupRecaptcha(containerId) {
+    window.recaptchaVerifier = new RecaptchaVerifier(auth, containerId, {
+      size: 'invisible',
+      callback: () => {}
+    })
+  }
+
+  async function sendPhoneOtp(phoneNumber) {
+    const confirmResult = await signInWithPhoneNumber(auth, phoneNumber, window.recaptchaVerifier)
+    window.confirmationResult = confirmResult
+    return confirmResult
+  }
+
+  async function verifyPhoneOtp(code) {
+    const result = await window.confirmationResult.confirm(code)
+    await createUserProfile(result.user)
+    return result
+  }
+
+  async function logout() {
+    await signOut(auth)
+    setUserProfile(null)
+    setIsKidsMode(false)
+  }
+
+  async function updateUserDob(dob) {
+    if (!currentUser) return
+    await setDoc(doc(db, 'users', currentUser.uid), { dob }, { merge: true })
+    const age = differenceInYears(new Date(), parseISO(dob))
+    setIsKidsMode(age < 18)
+    setUserProfile(p => ({ ...p, dob }))
+  }
+
+  // ── Auth listener ──────────────────────────────────────
+useEffect(() => {
+  const unsubscribe = onAuthStateChanged(auth, async user => {
     try {
-      const userRef = doc(db, 'users', user.uid);
-      const snapshot = await getDoc(userRef);
+      setCurrentUser(user)
 
-      if (snapshot.exists()) {
-        const profile = snapshot.data();
-        setUserProfile(profile);
-        setIsKidsMode(profile.isKidsMode || false);
-        setIsAdmin(user.email === ADMIN_EMAIL);
+      if (user) {
+        await loadProfile(user.uid)
       }
     } catch (error) {
-      console.error('Error loading user profile:', error);
+      console.error('Profile load error:', error)
+    } finally {
+      setLoading(false)
     }
-  };
+  })
 
-  const signup = async (email, password, additionalData) => {
-    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    await createUserProfile(userCredential.user, additionalData);
-    return userCredential;
-  };
-
-  const login = (email, password) => {
-    return signInWithEmailAndPassword(auth, email, password);
-  };
-
-  const loginWithGoogle = async () => {
-    const result = await signInWithPopup(auth, googleProvider);
-    await createUserProfile(result.user);
-    return result;
-  };
-
-  const loginWithFacebook = async () => {
-    const result = await signInWithPopup(auth, facebookProvider);
-    await createUserProfile(result.user);
-    return result;
-  };
-
-  const setupRecaptcha = (elementId) => {
-    return new RecaptchaVerifier(auth, elementId, {
-      size: 'invisible',
-    });
-  };
-
-  const loginWithPhone = (phoneNumber, recaptchaVerifier) => {
-    return signInWithPhoneNumber(auth, phoneNumber, recaptchaVerifier);
-  };
-
-  const logout = () => {
-    return signOut(auth);
-  };
-
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setCurrentUser(user);
-      await loadUserProfile(user);
-      setLoading(false);
-    });
-
-    return unsubscribe;
-  }, []);
-
+  return unsubscribe
+}, [])
   const value = {
-    currentUser,
-    userProfile,
-    isKidsMode,
-    isAdmin,
-    signup,
-    login,
-    loginWithGoogle,
-    loginWithFacebook,
-    loginWithPhone,
-    setupRecaptcha,
-    logout,
-    createUserProfile,
-  };
+    currentUser, userProfile, loading,
+    isAdmin, isKidsMode, setIsKidsMode,
+    loginWithGoogle, loginWithFacebook,
+    loginWithEmail, registerWithEmail,
+    setupRecaptcha, sendPhoneOtp, verifyPhoneOtp,
+    logout, updateUserDob, createUserProfile
+  }
 
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}
     </AuthContext.Provider>
-  );
-};
+  )
+}

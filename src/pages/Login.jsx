@@ -1,224 +1,213 @@
-import React, { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
-import { BookOpen, Mail, Lock, Phone } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { useAuth } from '../contexts/AuthContext'
+import { BookOpen, Mail, Lock, Eye, EyeOff, Phone, User, Calendar, Loader, Chrome } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-const Login = () => {
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [phoneNumber, setPhoneNumber] = useState('');
-  const [loginMethod, setLoginMethod] = useState('email');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+const TAB = { LOGIN: 'login', REGISTER: 'register', PHONE: 'phone' }
 
-  const { login, loginWithGoogle, loginWithFacebook, loginWithPhone, setupRecaptcha } = useAuth();
-  const navigate = useNavigate();
+export default function Login() {
+  const [tab, setTab]             = useState(TAB.LOGIN)
+  const [email, setEmail]         = useState('')
+  const [password, setPassword]   = useState('')
+  const [name, setName]           = useState('')
+  const [dob, setDob]             = useState('')
+  const [showPwd, setShowPwd]     = useState(false)
+  const [phone, setPhone]         = useState('')
+  const [otp, setOtp]             = useState('')
+  const [otpSent, setOtpSent]     = useState(false)
+  const [loading, setLoading]     = useState(false)
+  const { currentUser, loginWithGoogle, loginWithFacebook, loginWithEmail, registerWithEmail, setupRecaptcha, sendPhoneOtp, verifyPhoneOtp } = useAuth()
+  const navigate = useNavigate()
+  const recaptchaDiv = useRef()
 
-  const handleEmailLogin = async (e) => {
-    e.preventDefault();
-    try {
-      setError('');
-      setLoading(true);
-      await login(email, password);
-      navigate('/');
-    } catch (error) {
-      setError('Failed to log in: ' + error.message);
+  useEffect(() => { if (currentUser) navigate('/') }, [currentUser])
+
+  useEffect(() => {
+    if (tab === TAB.PHONE) {
+      setTimeout(() => setupRecaptcha('recaptcha-container'), 300)
     }
-    setLoading(false);
-  };
+  }, [tab])
 
-  const handleGoogleLogin = async () => {
-    try {
-      setError('');
-      setLoading(true);
-      await loginWithGoogle();
-      navigate('/');
-    } catch (error) {
-      setError('Failed to log in with Google: ' + error.message);
-    }
-    setLoading(false);
-  };
+  async function handleGoogle() {
+    setLoading(true)
+    try { await loginWithGoogle(); navigate('/') }
+    catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
 
-  const handleFacebookLogin = async () => {
-    try {
-      setError('');
-      setLoading(true);
-      await loginWithFacebook();
-      navigate('/');
-    } catch (error) {
-      setError('Failed to log in with Facebook: ' + error.message);
-    }
-    setLoading(false);
-  };
+  async function handleFacebook() {
+    setLoading(true)
+    try { await loginWithFacebook(); navigate('/') }
+    catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
 
-  const handlePhoneLogin = async (e) => {
-    e.preventDefault();
-    try {
-      setError('');
-      setLoading(true);
-      const recaptchaVerifier = setupRecaptcha('recaptcha-container');
-      const confirmationResult = await loginWithPhone(phoneNumber, recaptchaVerifier);
-      const verificationCode = prompt('Enter the verification code sent to your phone:');
-      if (verificationCode) {
-        await confirmationResult.confirm(verificationCode);
-        navigate('/');
-      }
-    } catch (error) {
-      setError('Failed to log in with phone: ' + error.message);
-    }
-    setLoading(false);
-  };
+  async function handleEmailLogin(e) {
+    e.preventDefault()
+    setLoading(true)
+    try { await loginWithEmail(email, password); navigate('/') }
+    catch (e) { toast.error('Invalid email or password') }
+    finally { setLoading(false) }
+  }
+
+  async function handleRegister(e) {
+    e.preventDefault()
+    if (!dob) return toast.error('Date of birth required')
+    setLoading(true)
+    try { await registerWithEmail(email, password, name, dob); navigate('/') }
+    catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+
+  async function handleSendOtp() {
+    if (!phone) return toast.error('Enter phone number')
+    setLoading(true)
+    try { await sendPhoneOtp(phone); setOtpSent(true); toast.success('OTP sent!') }
+    catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+
+  async function handleVerifyOtp() {
+    setLoading(true)
+    try { await verifyPhoneOtp(otp); navigate('/') }
+    catch (e) { toast.error('Invalid OTP') }
+    finally { setLoading(false) }
+  }
 
   return (
-    <div className="min-h-screen flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-md w-full">
-        <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded-lg shadow-2xl p-8">
-          <div className="text-center mb-8">
-            <BookOpen className="mx-auto h-16 w-16 text-blue-300" />
-            <h2 className="mt-4 text-3xl font-bold text-white">Welcome to Readrack</h2>
-            <p className="mt-2 text-blue-200">Sign in to your account</p>
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Ambient glows */}
+      <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute bottom-1/4 right-1/4 w-80 h-80 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
+
+      <div className="w-full max-w-md animate-slide-up">
+        {/* Brand */}
+        <div className="text-center mb-8">
+          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-blue-800 flex items-center justify-center mx-auto mb-4 shadow-glow-lg">
+            <BookOpen size={32} className="text-white" />
           </div>
-
-          {error && (
-            <div className="mb-4 bg-red-500 text-white p-3 rounded-md text-sm">{error}</div>
-          )}
-
-          <div className="mb-6 flex space-x-2">
-            <button
-              onClick={() => setLoginMethod('email')}
-              className={`flex-1 py-2 px-4 rounded-md transition ${
-                loginMethod === 'email'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-blue-700 text-blue-200'
-              }`}
-            >
-              Email
-            </button>
-            <button
-              onClick={() => setLoginMethod('phone')}
-              className={`flex-1 py-2 px-4 rounded-md transition ${
-                loginMethod === 'phone'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-blue-700 text-blue-200'
-              }`}
-            >
-              Phone
-            </button>
-          </div>
-
-          {loginMethod === 'email' ? (
-            <form onSubmit={handleEmailLogin} className="space-y-4">
-              <div>
-                <label className="block text-blue-100 text-sm font-medium mb-2">
-                  Email Address
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3 top-3 h-5 w-5 text-blue-300" />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    required
-                    className="w-full pl-10 pr-4 py-2 bg-blue-800 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="you@example.com"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-blue-100 text-sm font-medium mb-2">
-                  Password
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3 top-3 h-5 w-5 text-blue-300" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    required
-                    className="w-full pl-10 pr-4 py-2 bg-blue-800 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="••••••••"
-                  />
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition btn-primary disabled:opacity-50"
-              >
-                {loading ? 'Signing in...' : 'Sign In'}
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={handlePhoneLogin} className="space-y-4">
-              <div>
-                <label className="block text-blue-100 text-sm font-medium mb-2">
-                  Phone Number
-                </label>
-                <div className="relative">
-                  <Phone className="absolute left-3 top-3 h-5 w-5 text-blue-300" />
-                  <input
-                    type="tel"
-                    value={phoneNumber}
-                    onChange={(e) => setPhoneNumber(e.target.value)}
-                    required
-                    className="w-full pl-10 pr-4 py-2 bg-blue-800 text-white rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="+1234567890"
-                  />
-                </div>
-              </div>
-
-              <div id="recaptcha-container"></div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full py-3 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition btn-primary disabled:opacity-50"
-              >
-                {loading ? 'Sending code...' : 'Send Verification Code'}
-              </button>
-            </form>
-          )}
-
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-blue-700"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-blue-800 text-blue-300">Or continue with</span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                onClick={handleGoogleLogin}
-                disabled={loading}
-                className="py-2 px-4 bg-white text-gray-700 rounded-md hover:bg-gray-100 transition font-medium disabled:opacity-50"
-              >
-                Google
-              </button>
-              <button
-                onClick={handleFacebookLogin}
-                disabled={loading}
-                className="py-2 px-4 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition font-medium disabled:opacity-50"
-              >
-                Facebook
-              </button>
-            </div>
-          </div>
-
-          <p className="mt-6 text-center text-blue-200 text-sm">
-            Don't have an account?{' '}
-            <Link to="/signup" className="text-blue-300 hover:text-blue-100 font-medium">
-              Sign up
-            </Link>
-          </p>
+          <h1 className="text-3xl font-bold text-white">Read<span className="text-blue-400">rack</span></h1>
+          <p className="text-slate-400 text-sm mt-1">Read. Discover. Explore.</p>
         </div>
+
+        <div className="glass-card p-6">
+          {/* Tab switcher */}
+          <div className="flex bg-navy-950/60 rounded-xl p-1 mb-6 gap-1">
+            {[
+              { key: TAB.LOGIN,    label: 'Sign In' },
+              { key: TAB.REGISTER, label: 'Register' },
+              { key: TAB.PHONE,    label: '📱 Phone' },
+            ].map(t => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={`flex-1 py-2 text-xs font-semibold rounded-lg transition-all ${tab === t.key ? 'bg-blue-600 text-white shadow-glow' : 'text-slate-400 hover:text-slate-200'}`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Social logins */}
+          {tab !== TAB.PHONE && (
+            <div className="space-y-2 mb-5">
+              <button onClick={handleGoogle} disabled={loading} className="w-full flex items-center justify-center gap-3 py-2.5 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-blue-500/40 transition-all text-sm font-medium text-slate-200">
+                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
+                Continue with Google
+              </button>
+              <button onClick={handleFacebook} disabled={loading} className="w-full flex items-center justify-center gap-3 py-2.5 rounded-xl bg-blue-800/20 border border-blue-800/30 hover:bg-blue-800/30 hover:border-blue-500/40 transition-all text-sm font-medium text-slate-200">
+                <span className="text-blue-400 font-bold text-base">f</span>
+                Continue with Facebook
+              </button>
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-blue-900/40" />
+                <span className="text-xs text-slate-600">or</span>
+                <div className="flex-1 h-px bg-blue-900/40" />
+              </div>
+            </div>
+          )}
+
+          {/* Email Login */}
+          {tab === TAB.LOGIN && (
+            <form onSubmit={handleEmailLogin} className="space-y-3">
+              <div className="relative">
+                <Mail size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type="email" className="input-field pl-9" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required />
+              </div>
+              <div className="relative">
+                <Lock size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type={showPwd ? 'text' : 'password'} className="input-field pl-9 pr-9" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
+                <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3 top-3 text-slate-500 hover:text-slate-300">
+                  {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+                {loading ? <Loader size={15} className="animate-spin" /> : null} Sign In
+              </button>
+            </form>
+          )}
+
+          {/* Register */}
+          {tab === TAB.REGISTER && (
+            <form onSubmit={handleRegister} className="space-y-3">
+              <div className="relative">
+                <User size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type="text" className="input-field pl-9" placeholder="Full name" value={name} onChange={e => setName(e.target.value)} required />
+              </div>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type="email" className="input-field pl-9" placeholder="Email address" value={email} onChange={e => setEmail(e.target.value)} required />
+              </div>
+              <div className="relative">
+                <Lock size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type={showPwd ? 'text' : 'password'} className="input-field pl-9 pr-9" placeholder="Password (min 6 chars)" value={password} onChange={e => setPassword(e.target.value)} required minLength={6} />
+                <button type="button" onClick={() => setShowPwd(v => !v)} className="absolute right-3 top-3 text-slate-500 hover:text-slate-300">
+                  {showPwd ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              <div className="relative">
+                <Calendar size={15} className="absolute left-3 top-3 text-slate-500" />
+                <input type="date" className="input-field pl-9" value={dob} onChange={e => setDob(e.target.value)} required max={new Date().toISOString().split('T')[0]} />
+              </div>
+              <p className="text-xs text-slate-500">📌 Date of birth determines content access (under 18 = Kids Mode)</p>
+              <button type="submit" disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+                {loading ? <Loader size={15} className="animate-spin" /> : null} Create Account
+              </button>
+            </form>
+          )}
+
+          {/* Phone */}
+          {tab === TAB.PHONE && (
+            <div className="space-y-3">
+              <div id="recaptcha-container" />
+              {!otpSent ? (
+                <>
+                  <div className="relative">
+                    <Phone size={15} className="absolute left-3 top-3 text-slate-500" />
+                    <input type="tel" className="input-field pl-9" placeholder="+1 234 567 8900" value={phone} onChange={e => setPhone(e.target.value)} />
+                  </div>
+                  <button onClick={handleSendOtp} disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+                    {loading ? <Loader size={15} className="animate-spin" /> : null} Send OTP
+                  </button>
+                </>
+              ) : (
+                <>
+                  <input className="input-field text-center text-lg tracking-widest" placeholder="Enter 6-digit OTP" value={otp} onChange={e => setOtp(e.target.value)} maxLength={6} />
+                  <button onClick={handleVerifyOtp} disabled={loading} className="btn-primary w-full flex items-center justify-center gap-2">
+                    {loading ? <Loader size={15} className="animate-spin" /> : null} Verify OTP
+                  </button>
+                  <button onClick={() => setOtpSent(false)} className="btn-secondary w-full text-sm">Resend OTP</button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        <p className="text-center text-xs text-slate-600 mt-4">
+          By signing in you agree to our Terms of Service and Privacy Policy
+        </p>
       </div>
     </div>
-  );
-};
-
-export default Login;
+  )
+}

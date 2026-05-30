@@ -1,89 +1,77 @@
-import React, { useState, useEffect } from 'react';
-import { useAuth } from '../contexts/AuthContext';
-import { bookService, bookCategories } from '../services/bookService';
-import BookCard from '../components/BookCard';
-import { Filter } from 'lucide-react';
+import React, { useState, useEffect } from 'react'
+import { collection, getDocs, query, orderBy } from 'firebase/firestore'
+import { db } from '../firebase/config'
+import { useAuth } from '../contexts/AuthContext'
+import BookCard from '../components/BookCard'
+import CategoryFilter from '../components/CategoryFilter'
+import AdminBookModal from '../components/AdminBookModal'
+import { Gift, Plus, Download } from 'lucide-react'
+import toast from 'react-hot-toast'
 
-const FreeBooks = () => {
-  const [books, setBooks] = useState([]);
-  const [filteredBooks, setFilteredBooks] = useState([]);
-  const [selectedCategory, setSelectedCategory] = useState('All');
-  const [loading, setLoading] = useState(true);
-  const { isKidsMode } = useAuth();
+export default function FreeBooks() {
+  const { isAdmin, isKidsMode } = useAuth()
+  const [books, setBooks]       = useState([])
+  const [filtered, setFiltered] = useState([])
+  const [category, setCategory] = useState('All')
+  const [loading, setLoading]   = useState(true)
+  const [showModal, setShowModal] = useState(false)
 
+  useEffect(() => { loadBooks() }, [])
   useEffect(() => {
-    loadBooks();
-  }, [isKidsMode]);
+    let result = books
+    if (isKidsMode) result = result.filter(b => b.isKidsContent)
+    if (category !== 'All') result = result.filter(b => b.category === category)
+    setFiltered(result)
+  }, [books, category, isKidsMode])
 
-  useEffect(() => {
-    if (selectedCategory === 'All') {
-      setFilteredBooks(books);
-    } else {
-      setFilteredBooks(books.filter((book) => book.category === selectedCategory));
-    }
-  }, [selectedCategory, books]);
-
-  const loadBooks = async () => {
-    setLoading(true);
-    const freeBooks = await bookService.getFreeBooks(isKidsMode);
-    setBooks(freeBooks);
-    setFilteredBooks(freeBooks);
-    setLoading(false);
-  };
-
-  const handleDownload = (book) => {
-    if (book.pdfURL) {
-      window.open(book.pdfURL, '_blank');
-    }
-  };
+  async function loadBooks() {
+    setLoading(true)
+    try {
+      const snap = await getDocs(query(collection(db, 'books'), orderBy('addedAt', 'desc')))
+      setBooks(snap.docs.map(d => ({ id: d.id, ...d.data() })).filter(b => b.isFree))
+    } catch { toast.error('Failed to load') }
+    finally { setLoading(false) }
+  }
 
   return (
-    <div className="min-h-screen py-12 px-4 sm:px-6 lg:px-8">
-      <div className="max-w-7xl mx-auto">
-        <h1 className="text-4xl font-bold text-white mb-8">Free Books</h1>
-
-        <div className="mb-8 bg-gradient-to-br from-blue-900 to-blue-800 rounded-lg shadow-lg p-6">
-          <div className="flex items-center mb-4">
-            <Filter className="h-5 w-5 text-blue-300 mr-2" />
-            <h2 className="text-xl font-bold text-white">Filter by Category</h2>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={() => setSelectedCategory('All')}
-              className={`px-4 py-2 rounded-md transition ${
-                selectedCategory === 'All' ? 'bg-blue-600 text-white' : 'bg-blue-700 text-blue-200'
-              }`}
-            >
-              All
-            </button>
-            {bookCategories.map((category) => (
-              <button
-                key={category}
-                onClick={() => setSelectedCategory(category)}
-                className={`px-4 py-2 rounded-md transition ${
-                  selectedCategory === category ? 'bg-blue-600 text-white' : 'bg-blue-700 text-blue-200'
-                }`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+    <div className="space-y-6 animate-fade-in">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-white flex items-center gap-2">
+            <Gift className="text-emerald-400" size={26} /> Free Books
+          </h1>
+          <p className="text-slate-400 text-sm mt-0.5">Download and read for free — {filtered.length} titles available</p>
         </div>
-
-        {loading ? (
-          <div className="text-center text-white text-xl">Loading...</div>
-        ) : filteredBooks.length === 0 ? (
-          <div className="text-center text-blue-300 text-xl">No free books available</div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {filteredBooks.map((book) => (
-              <BookCard key={book.id} book={book} onDownload={handleDownload} showPrice={false} />
-            ))}
-          </div>
+        {isAdmin && (
+          <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
+            <Plus size={15} /> Add Free Book
+          </button>
         )}
       </div>
-    </div>
-  );
-};
 
-export default FreeBooks;
+      {/* Banner */}
+      <div className="glass-card p-4 bg-emerald-900/10 border-emerald-500/20 flex items-center gap-3">
+        <Download size={20} className="text-emerald-400 flex-shrink-0" />
+        <p className="text-sm text-slate-300">All books here are <strong className="text-emerald-300">completely free</strong> to download as PDF. No account charges.</p>
+      </div>
+
+      <CategoryFilter selected={category} onSelect={setCategory} kids={isKidsMode} />
+
+      {loading ? (
+        <div className="flex items-center justify-center h-48"><div className="spinner" /></div>
+      ) : filtered.length === 0 ? (
+        <div className="glass-card p-12 text-center">
+          <Gift size={40} className="mx-auto text-emerald-900/40 mb-3" />
+          <p className="text-slate-400 font-medium">No free books yet</p>
+          <p className="text-slate-600 text-sm mt-1">{isAdmin ? 'Add a book with "Free Book" enabled.' : 'Check back soon!'}</p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+          {filtered.map(book => <BookCard key={book.id} book={book} showBuyButton={false} />)}
+        </div>
+      )}
+
+      {showModal && <AdminBookModal onClose={r => { setShowModal(false); if (r) loadBooks() }} />}
+    </div>
+  )
+}
