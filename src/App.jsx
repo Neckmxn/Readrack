@@ -25,14 +25,7 @@ function ProtectedRoute({ children }) {
 function AppRoutes() {
   return (
     <Routes>
-      <Route
-  path="/login"
-  element={
-    <div style={{ color: 'white', padding: '50px', fontSize: '30px' }}>
-      LOGIN PAGE TEST
-    </div>
-  }
-/>
+      <Route path="/login" element={<Login />} />
       <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route index              element={<Dashboard />} />
         <Route path="chat"        element={<AIChat />} />
