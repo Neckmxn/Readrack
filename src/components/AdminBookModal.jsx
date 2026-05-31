@@ -30,33 +30,16 @@ export default function AdminBookModal({ onClose, editBook = null }) {
 
 async function uploadFile(file, onProgress) {
   const formData = new FormData()
-
   formData.append("file", file)
   formData.append("upload_preset", "readrack_upload")
 
-  const xhr = new XMLHttpRequest()
-  xhr.open(
-    "POST",
-    "https://api.cloudinary.com/v1_1/diuascilk/auto/upload"
+  const res = await fetch(
+    "https://api.cloudinary.com/v1_1/diuascilk/auto/upload",
+    {
+      method: "POST",
+      body: formData,
+    }
   )
-
-  xhr.upload.onprogress = (event) => {
-    if (event.lengthComputable && onProgress) {
-      const percent = Math.round((event.loaded / event.total) * 100)
-      onProgress(percent)
-    }
-  }
-
-  return new Promise((resolve, reject) => {
-    xhr.onload = () => {
-      const response = JSON.parse(xhr.responseText)
-      resolve(response.secure_url)
-    }
-
-    xhr.onerror = () => reject(new Error("Upload failed"))
-    xhr.send(formData)
-  })
-}
 
   const data = await res.json()
   return data.secure_url
