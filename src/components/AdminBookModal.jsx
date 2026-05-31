@@ -28,17 +28,39 @@ export default function AdminBookModal({ onClose, editBook = null }) {
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
 
-  async function uploadFile(file, path, onProgress) {
-    return new Promise((resolve, reject) => {
-      const storageRef = ref(storage, path)
-      const task = uploadBytesResumable(storageRef, file)
-      task.on('state_changed',
-        snap => onProgress(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
-        reject,
-        async () => resolve(await getDownloadURL(task.snapshot.ref))
-      )
-    })
+async function uploadFile(file, onProgress) {
+  const formData = new FormData()
+
+  formData.append("file", file)
+  formData.append("upload_preset", "readrack_upload")
+
+  const xhr = new XMLHttpRequest()
+  xhr.open(
+    "POST",
+    "https://api.cloudinary.com/v1_1/diuascilk/auto/upload"
+  )
+
+  xhr.upload.onprogress = (event) => {
+    if (event.lengthComputable && onProgress) {
+      const percent = Math.round((event.loaded / event.total) * 100)
+      onProgress(percent)
+    }
   }
+
+  return new Promise((resolve, reject) => {
+    xhr.onload = () => {
+      const response = JSON.parse(xhr.responseText)
+      resolve(response.secure_url)
+    }
+
+    xhr.onerror = () => reject(new Error("Upload failed"))
+    xhr.send(formData)
+  })
+}
+
+  const data = await res.json()
+  return data.secure_url
+}
 
   async function handleSubmit(e) {
     e.preventDefault()
@@ -50,12 +72,13 @@ export default function AdminBookModal({ onClose, editBook = null }) {
       let pdfUrl   = editBook?.pdfUrl   || ''
       let coverUrl = editBook?.coverUrl || ''
 
-      if (pdfFile) {
-        pdfUrl = await uploadFile(pdfFile, `books/pdfs/${Date.now()}_${pdfFile.name}`, setPdfProg)
-      }
-      if (coverFile) {
-        coverUrl = await uploadFile(coverFile, `books/covers/${Date.now()}_${coverFile.name}`, () => {})
-      }
+if (pdfFile) {
+  pdfUrl = await uploadFile(pdfFile, setPdfProg)
+}
+
+if (coverFile) {
+  coverUrl = await uploadFile(coverFile, () => {})
+}
 
       const payload = {
         ...form,
