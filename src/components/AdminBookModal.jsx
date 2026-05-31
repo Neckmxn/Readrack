@@ -1,7 +1,6 @@
 import React, { useState, useRef } from 'react'
 import { collection, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
-import { ref, uploadBytesResumable, getDownloadURL, deleteObject } from 'firebase/storage'
-import { db, storage } from '../firebase/config'
+import { db } from '../firebase/config'
 import { X, Upload, BookOpen, Loader } from 'lucide-react'
 import { CATEGORIES, KIDS_CATEGORIES } from './CategoryFilter'
 import toast from 'react-hot-toast'
